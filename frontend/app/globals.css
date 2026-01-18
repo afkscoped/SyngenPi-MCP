@@ -1,0 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #F9F6F2;
+  --card: #FFFFFF;
+  --muted: #6B665E;
+  --text: #2C2A26;
+  --accent: #D3B683;
+  --accent-2: #8C7B5D;
+  --success: #4A7A5E;
+  --danger: #B84A4A;
+  --border: #E0DDD5;
+  --shadow: 0 4px 20px rgba(44, 42, 38, 0.05);
+  /* Warmer shadow */
+  --radius: 8px;
+  /* Slightly tighter radius */
+  --base-size: 17px;
+  /* Increased legibility */
+}
+
+/* Global resets */
+html {
+  font-size: var(--base-size);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  /* Improved readability */
+  margin: 0;
+}
+
+/* Card style helper */
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  padding: 24px;
+}
+
+/* Common inputs & buttons - Moved to React Components to avoid @apply issues */
+
+/* AG Grid / spreadsheet text overrides */
+.ag-theme-alpine {
+  --ag-background-color: #FFFFFF;
+  --ag-foreground-color: #2C2A26;
+  --ag-header-foreground-color: #5C5852;
+  --ag-border-color: #E0DDD5;
+  --ag-row-hover-color: #F9F6F2;
+  --ag-font-size: 15px;
+  --ag-font-family: 'Inter', sans-serif;
+  --ag-header-column-separator-display: block;
+  --ag-header-column-separator-height: 100%;
+  --ag-header-column-separator-width: 1px;
+  --ag-header-column-separator-color: #E0DDD5;
+}
+
+.ag-theme-alpine .ag-header-cell {
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: none;
+  /* Removed uppercase for more professional look */
+  letter-spacing: normal;
+}
+
+.ag-theme-alpine .ag-cell {
+  line-height: 28px;
+}

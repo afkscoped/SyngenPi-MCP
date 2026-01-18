@@ -1,0 +1,21 @@
+
+fastapi
+uvicorn
+python-multipart
+supabase
+pandas
+numpy
+openpyxl
+scipy
+statsmodels
+matplotlib
+seaborn
+langchain
+langchain-openai
+openai
+requests
+python-dotenv
+sdv
+autogluon.tabular
+kaggle
+# Install autogluon via script or separate pip install as it is heavy

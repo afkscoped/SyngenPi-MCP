@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-dotenv
+sdv
+pandas
+openpyxl
+supabase
+python-jose[cryptography]

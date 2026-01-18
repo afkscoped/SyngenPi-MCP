@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-dotenv
+langchain
+langchain-openai
+e2b_code_interpreter
+supabase
+python-jose[cryptography]
+pandas
+openpyxl

@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-dotenv
+pandas
+scipy
+statsmodels
+matplotlib
+seaborn
+supabase
+python-jose[cryptography]
+openai

@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+.DS_Store
+
+# Next.js
+.next/
+node_modules/
+.vercel
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Generated Data
+backend/generated/
+models/
