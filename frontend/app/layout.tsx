@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import { Inter, Poppins } from "next/font/google";
+import { Inter, Orbitron } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -8,10 +9,9 @@ const inter = Inter({
   display: "swap",
 });
 
-const poppins = Poppins({
-  weight: ["600", "700"],
+const orbitron = Orbitron({
   subsets: ["latin"],
-  variable: "--font-poppins",
+  variable: "--font-orbitron",
   display: "swap",
 });
 
@@ -26,9 +26,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${inter.variable} ${poppins.variable} font-sans antialiased text-text bg-bg`}>
-        {children}
+    <html lang="en" className="dark">
+      <body className={`${inter.variable} ${orbitron.variable} antialiased`}>
+        <ThemeProvider>
+          <div className="scan-line" />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
