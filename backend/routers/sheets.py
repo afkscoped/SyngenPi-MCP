@@ -24,6 +24,10 @@ class SaveRequest(BaseModel):
     url: str
     rows: List[Dict[str, Any]]
 
+class AgentEditRequest(BaseModel):
+    url: str
+    command: str
+
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     """Upload a CSV/Excel file"""
@@ -119,6 +123,81 @@ async def save_sheet(req: SaveRequest):
             df.to_excel(filepath, index=False, engine='openpyxl')
         
         return {"status": "success", "message": "Saved successfully", "rows_saved": len(req.rows)}
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@router.post("/agent-edit")
+async def agent_edit_sheet(req: AgentEditRequest):
+    """Edit a sheet using natural language commands"""
+    try:
+        from backend.services.agent_core import AgentCore
+        
+        # Resolve file path
+        if req.url.startswith("http"):
+            filename = req.url.split("/")[-1]
+        else:
+            filename = req.url
+            
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        if not os.path.exists(filepath):
+             # Try search
+            for f in os.listdir(UPLOAD_DIR):
+                if filename in f:
+                    filepath = os.path.join(UPLOAD_DIR, f)
+                    break
+        
+        if not os.path.exists(filepath):
+            return JSONResponse(status_code=404, content={"error": "File not found"})
+            
+        # Load df
+        if filepath.endswith('.csv'):
+            df = pd.read_csv(filepath)
+        else:
+            df = pd.read_excel(filepath)
+            
+        # Agent
+        agent = AgentCore()
+        cols = list(df.columns)
+        sample = df.head(3).to_string()
+        
+        code = agent.manipulate_data(req.command, cols, sample)
+        
+        if not code:
+            return JSONResponse(status_code=400, content={"error": "Could not generate code for command"})
+            
+        # Execute Code
+        # We need a local scope
+        local_scope = {"df": df, "pd": pd, "np": np}
+        
+        # Execute
+        try:
+            exec(code, {}, local_scope)
+        except Exception as e:
+            return JSONResponse(status_code=400, content={"error": f"Execution failed: {e}\nCode: {code}"})
+            
+        # Get result
+        new_df = local_scope.get("df")
+        if not isinstance(new_df, pd.DataFrame):
+            return JSONResponse(status_code=400, content={"error": "Code executed but `df` variable was lost"})
+            
+        # Save back
+        if filepath.endswith('.csv'):
+            new_df.to_csv(filepath, index=False)
+        else:
+            new_df.to_excel(filepath, index=False)
+            
+        # Return new data
+        columns = [{"key": col, "name": col, "editable": True} for col in new_df.columns]
+        rows = new_df.to_dict(orient='records')
+        
+        return {
+            "status": "success",
+            "message": f"Executed: {req.command}",
+            "code_executed": code,
+            "columns": columns,
+            "rows": rows
+        }
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})

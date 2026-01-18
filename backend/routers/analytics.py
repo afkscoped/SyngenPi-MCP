@@ -114,6 +114,46 @@ def run_statistical_test(test: str, params: Dict[str, Any], df: pd.DataFrame) ->
                 "p_value": float(p_val),
                 "significant": p_val < 0.05
             }
+
+        elif test == "linreg":
+            target = params.get("target_col")
+            features = params.get("feature_cols")
+            
+            if not target or not features:
+                return {"error": "Regression requires target_col and feature_cols"}
+            
+            # Simple linear regression with 1 feature for now (scipy stats linregress)
+            # Or use statsmodels/sklearn for multiple. Let's stick to simple 1v1 for robustness without extra deps if possible.
+            # But the agent might pass multiple features.
+            
+            # Use single feature if list provided
+            feature = features[0] if isinstance(features, list) else features
+            
+            slope, intercept, r_value, p_value, std_err = stats.linregress(df[feature], df[target])
+            
+            return {
+                "test": "linreg",
+                "slope": float(slope),
+                "intercept": float(intercept),
+                "r_squared": float(r_value**2),
+                "p_value": float(p_value),
+                "significant": p_value < 0.05
+            }
+
+        elif test == "chi2":
+            col1 = params.get("col1")
+            col2 = params.get("col2")
+            
+            contingency_table = pd.crosstab(df[col1], df[col2])
+            chi2, p, dof, expected = stats.chi2_contingency(contingency_table)
+            
+            return {
+                "test": "chi2",
+                "chi2_statistic": float(chi2),
+                "p_value": float(p),
+                "dof": int(dof),
+                "significant": p < 0.05
+            }
         
         else:
             return {"error": f"Unknown test: {test}"}

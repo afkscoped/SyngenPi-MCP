@@ -100,6 +100,137 @@ def train_model(req: TrainRequest):
         "message": "Training complete"
     }
 
+
+class AgentRouterRequest(BaseModel):
+    dataset_id: str
+    command: str
+
+@router.post("/agent_interact")
+async def interact_with_agent(req: AgentRouterRequest):
+    """
+    Unified Agent Endpoint using the 'Two-Engine' Framework
+    """
+    try:
+        from backend.services.agent_core import AgentCore
+        agent = AgentCore()
+        
+        # Resolve File
+        # Check if dataset_id is a local path
+        if req.dataset_id.startswith("http"):
+             filename = req.dataset_id.split("/")[-1]
+             filepath = os.path.join(UPLOAD_DIR, filename)
+        else:
+             filepath = os.path.join(UPLOAD_DIR, req.dataset_id)
+        
+        # Try finding file if not exact match
+        if not os.path.exists(filepath):
+            for f in os.listdir(UPLOAD_DIR):
+                if req.dataset_id in f:
+                    filepath = os.path.join(UPLOAD_DIR, f)
+                    break
+                    
+        if not os.path.exists(filepath):
+             return {"error": "Dataset not found"}
+
+        if filepath.endswith('.csv'):
+            df = pd.read_csv(filepath)
+        else:
+            df = pd.read_excel(filepath)
+            
+        # 1. Ask Router
+        context = {
+            "columns": list(df.columns),
+            "sample": df.head(3).to_string()
+        }
+        
+        decision = agent.agent_router(req.command, context)
+        
+        if "error" in decision:
+            return decision
+
+        action = decision.get("action")
+        
+        if action == "MANIPULATION":
+            code = decision.get("code")
+            if not code:
+                return {"error": "Failed to generate manipulation code"}
+            
+            # Execute Pandas Code
+            local_scope = {"df": df, "pd": pd}
+            try:
+                exec(code, {}, local_scope)
+                new_df = local_scope.get("df")
+                
+                # Save
+                if filepath.endswith('.csv'):
+                    new_df.to_csv(filepath, index=False)
+                else:
+                    new_df.to_excel(filepath, index=False)
+                
+                return {
+                    "status": "success",
+                    "action": "MANIPULATION",
+                    "code": code,
+                    "message": "View updated. Data manipulation executed."
+                }
+            except Exception as e:
+                return {"error": f"Pandas Execution Failed: {e}"}
+                
+        elif action == "PREDICTION":
+            target = decision.get("target")
+            if not target:
+                return {"error": "Could not determine target column"}
+                
+            # Trigger Training Logic (Synchronous for now, or trigger async job)
+            # We can reuse the train_model logic or call it directly.
+            # Ideally returns a "plan" to frontend to start training or starts it.
+            
+            # Check target exists
+            if target not in df.columns:
+                 return {"error": f"Target '{target}' not found in dataset."}
+            
+            # Start Training (Short timeout for demo)
+            model_id = f"model_{req.dataset_id}_{target}"
+            save_path = f"models/{model_id}"
+            
+            if AUTOGLUON_AVAILABLE:
+                # We can't actually run a long job in this request comfortably without async background tasks.
+                # But user wants "The Two-Engine Framework".
+                # Let's start it and return fast? Or run short?
+                # The user script said `run_autogluon_task` returns `predictor`.
+                
+                # For this implementation, let's trigger the existing logic but keep it simple.
+                # We will return a specific "TRAIN_INTENT" payload so the Frontend can show a loader 
+                # or we can call the train function internally if we want to block (bad exp).
+                
+                # Better: return action/target so Frontend can show "Training on X..." and trigger the /train endpoint?
+                # The prompt said "The Fusion Approach... LLM decides... Calls Pandas Tool -> Success".
+                # For Prediction: "Handles intelligence... Trigger: Predict...".
+                
+                # Let's return the intent so the frontend can trigger the actual heavy job, OR run it here if fast.
+                # I'll return the parsed intent specifically so the UI can yield control.
+                return {
+                    "status": "success",
+                    "action": "PREDICTION",
+                    "target": target,
+                    "message": f"I will train a predictor on '{target}'."
+                }
+            else:
+                return {
+                    "status": "success",
+                    "action": "PREDICTION",
+                    "target": target,
+                    "message": "AutoGluon not available, using fallback predictor."
+                }
+                
+        else:
+             return {"message": "I'm not sure if you want to Edit or Predict. Please be more specific."}
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+
 @router.post("/predict")
 def predict_model(req: PredictRequest):
     model_id = req.model_id

@@ -1,12 +1,9 @@
-"use client";
-
 import { useState, useEffect, useRef, useMemo } from "react";
 import { AgGridReact } from "ag-grid-react";
-import "ag-grid-community/styles/ag-grid.css";
-import "ag-grid-community/styles/ag-theme-alpine.css";
+import "ag-grid-community/styles/ag-theme-alpine.css"; // Keep theme, remove base if causing conflict, or use legacy
 import { ColDef, ModuleRegistry, ClientSideRowModelModule, ValidationModule } from "ag-grid-community";
 import { Button } from "./ui/ThemeComponents";
-import { Save, Download, Upload, Undo, Redo } from "lucide-react";
+import { Save, Download, Upload, Undo, Redo, RefreshCw } from "lucide-react";
 import FileDropZone from "./FileDropZone";
 
 // Register AG Grid modules
@@ -16,19 +13,48 @@ const API_BASE = "/api/backend";
 
 interface SpreadsheetEditorProps {
     onFileLoaded?: (file: { name: string; url: string }) => void;
+    externalRefresh?: number;
 }
 
-export default function SpreadsheetEditor({ onFileLoaded }: SpreadsheetEditorProps) {
+export default function SpreadsheetEditor({ onFileLoaded, externalRefresh }: SpreadsheetEditorProps) {
     const gridRef = useRef<AgGridReact>(null);
     const [rowData, setRowData] = useState<any[]>([]);
     const [columnDefs, setColumnDefs] = useState<ColDef[]>([]);
     const [loading, setLoading] = useState(false);
     const [filename, setFilename] = useState<string | null>(null);
 
-    // Initial load
+    // Load from localStorage on mount or refresh trigger
     useEffect(() => {
-        // Could load default data or check local storage
+        // If externalRefresh changed and we have a filename, reload from server
+        if (externalRefresh && externalRefresh > 0 && filename) {
+            loadData(filename); // filename or url? loadData expects url (which serves as key/filename)
+            return;
+        }
+
+        const savedData = localStorage.getItem("mcp_spreadsheet_data");
+        const savedFilename = localStorage.getItem("mcp_spreadsheet_filename");
+        const savedCols = localStorage.getItem("mcp_spreadsheet_cols");
+
+        if (savedData && savedFilename) {
+            try {
+                setRowData(JSON.parse(savedData));
+                setFilename(savedFilename);
+                if (savedCols) {
+                    setColumnDefs(JSON.parse(savedCols));
+                }
+            } catch (e) {
+                console.error("Failed to load saved state", e);
+                localStorage.removeItem("mcp_spreadsheet_data");
+            }
+        }
     }, []);
+
+    // Save to localStorage whenever data changes (debounced/on-edit)
+    const persistState = (newRows: any[], newFilename: string, newCols: ColDef[]) => {
+        localStorage.setItem("mcp_spreadsheet_data", JSON.stringify(newRows));
+        localStorage.setItem("mcp_spreadsheet_filename", newFilename);
+        localStorage.setItem("mcp_spreadsheet_cols", JSON.stringify(newCols));
+    };
 
     const handleFileUploaded = (file: { name: string; url: string }) => {
         setFilename(file.name);
@@ -47,8 +73,9 @@ export default function SpreadsheetEditor({ onFileLoaded }: SpreadsheetEditorPro
             const data = await res.json();
             if (data.error) throw new Error(data.error);
 
+            let newCols: ColDef[] = [];
             if (data.columns) {
-                const cols = data.columns.map((c: any) => ({
+                newCols = data.columns.map((c: any) => ({
                     field: c.key,
                     headerName: c.name,
                     editable: true,
@@ -57,20 +84,24 @@ export default function SpreadsheetEditor({ onFileLoaded }: SpreadsheetEditorPro
                     filter: true,
                     minWidth: 120
                 }));
-                setColumnDefs(cols);
             } else if (data.rows && data.rows.length > 0) {
                 const keys = Object.keys(data.rows[0]);
-                setColumnDefs(keys.map(k => ({
+                newCols = keys.map(k => ({
                     field: k,
                     headerName: k,
                     editable: true,
                     resizable: true,
                     sortable: true,
                     filter: true
-                })));
+                }));
             }
 
+            setColumnDefs(newCols);
             setRowData(data.rows || []);
+
+            // Persist immediately
+            persistState(data.rows || [], filename || "data.csv", newCols);
+
         } catch (e) {
             console.error("Load error:", e);
         } finally {
@@ -92,7 +123,8 @@ export default function SpreadsheetEditor({ onFileLoaded }: SpreadsheetEditorPro
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ filename, rows })
             });
-            // Show success toast?
+            // Update local storage too
+            persistState(rows, filename, columnDefs);
         } catch (e) {
             console.error("Save error:", e);
         } finally {
@@ -100,10 +132,26 @@ export default function SpreadsheetEditor({ onFileLoaded }: SpreadsheetEditorPro
         }
     };
 
+    const handleCellDetailsChanged = (event: any) => {
+        // Capture edits
+        const rows: any[] = [];
+        event.api.forEachNode((node: any) => rows.push(node.data));
+        setRowData(rows);
+        if (filename) persistState(rows, filename, columnDefs);
+    };
+
     const exportCsv = () => {
         gridRef.current?.api.exportDataAsCsv({
             fileName: filename?.replace(/\.[^/.]+$/, "") || "export"
         });
+    };
+
+    const clearSession = () => {
+        localStorage.removeItem("mcp_spreadsheet_data");
+        localStorage.removeItem("mcp_spreadsheet_filename");
+        localStorage.removeItem("mcp_spreadsheet_cols");
+        setRowData([]);
+        setFilename(null);
     };
 
     // Default column config
@@ -133,6 +181,56 @@ export default function SpreadsheetEditor({ onFileLoaded }: SpreadsheetEditorPro
                 <div className="flex items-center gap-2">
                     {filename && (
                         <>
+                            {/* AI Command Bar */}
+                            <div className="flex items-center mr-4 bg-gray-50 border border-input rounded-md px-3 py-1.5 w-80">
+                                <span className="text-xs font-bold text-accent mr-2">AI</span>
+                                <input
+                                    className="bg-transparent border-none text-sm w-full focus:outline-none"
+                                    placeholder="e.g. 'Delete rows where Age < 20'..."
+                                    onKeyDown={async (e) => {
+                                        if (e.key === 'Enter') {
+                                            const cmd = e.currentTarget.value;
+                                            if (!cmd.trim()) return;
+                                            setLoading(true);
+                                            try {
+                                                const res = await fetch(`${API_BASE}/sheets/agent-edit`, {
+                                                    method: "POST",
+                                                    headers: { "Content-Type": "application/json" },
+                                                    body: JSON.stringify({ url: filename, command: cmd })
+                                                });
+                                                const data = await res.json();
+                                                if (data.error) throw new Error(data.error);
+
+                                                // Update Grid
+                                                if (data.rows) {
+                                                    setRowData(data.rows);
+                                                    persistState(data.rows, filename, columnDefs);
+                                                }
+                                                // Update Cols if changed
+                                                if (data.columns) {
+                                                    const newCols = data.columns.map((c: any) => ({
+                                                        field: c.key,
+                                                        headerName: c.name,
+                                                        editable: true,
+                                                        resizable: true,
+                                                        sortable: true,
+                                                        filter: true,
+                                                        minWidth: 120
+                                                    }));
+                                                    setColumnDefs(newCols);
+                                                }
+                                                e.currentTarget.value = ""; // clear
+                                            } catch (err) {
+                                                console.error(err);
+                                                alert("AI Error: " + err);
+                                            } finally {
+                                                setLoading(false);
+                                            }
+                                        }
+                                    }}
+                                />
+                            </div>
+
                             <Button variant="secondary" onClick={() => gridRef.current?.api.undoCellEditing()} title="Undo">
                                 <Undo className="w-4 h-4" />
                             </Button>
@@ -147,6 +245,9 @@ export default function SpreadsheetEditor({ onFileLoaded }: SpreadsheetEditorPro
                             <Button variant="outline" onClick={exportCsv}>
                                 <Download className="w-4 h-4" />
                                 Export
+                            </Button>
+                            <Button variant="ghost" onClick={clearSession} title="Clear Session">
+                                <RefreshCw className="w-4 h-4 text-muted" />
                             </Button>
                         </>
                     )}
@@ -175,6 +276,7 @@ export default function SpreadsheetEditor({ onFileLoaded }: SpreadsheetEditorPro
                             paginationPageSize={20}
                             undoRedoCellEditing={true}
                             undoRedoCellEditingLimit={20}
+                            onCellValueChanged={handleCellDetailsChanged}
                         />
                     </div>
                 )}

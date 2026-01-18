@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BarChart3, Upload, Send, Loader2, FileSpreadsheet, ListFilter, ArrowRight, MessageSquare, Lightbulb } from "lucide-react";
 import { Button, Card, Input } from "./ui/ThemeComponents";
 import FileDropZone from "./FileDropZone";
+import SpreadsheetEditor from "./SpreadsheetEditor";
 
 const API_BASE = "/api/backend";
 
@@ -14,6 +15,7 @@ export default function AnalyticsPanel() {
     const [loading, setLoading] = useState(false);
     const [chatHistory, setChatHistory] = useState<Array<{ role: string, content: string }>>([]);
 
+    // When file loaded via DropZone or Editor (if we implemented load there)
     const handleFileUploaded = (file: { name: string; url: string }) => {
         setDatasetUrl(file.url);
         setDatasetName(file.name);
@@ -48,6 +50,11 @@ export default function AnalyticsPanel() {
                 if (data.results.correlation !== undefined) {
                     response += `• Correlation: ${data.results.correlation.toFixed(3)}\n`;
                 }
+                if (data.results.slope !== undefined) {
+                    response += `• Slope: ${data.results.slope.toFixed(4)}\n`;
+                    response += `• Intercept: ${data.results.intercept.toFixed(4)}\n`;
+                    response += `• R-Squared: ${data.results.r_squared.toFixed(4)}\n`;
+                }
                 if (data.results.meaning) response += `\n${data.results.meaning}`;
             } else {
                 response = JSON.stringify(data, null, 2);
@@ -61,15 +68,9 @@ export default function AnalyticsPanel() {
         }
     };
 
-    const suggestions = [
-        "Run a t-test on Revenue by Department",
-        "Find correlation between Age and Spending",
-        "Compare sales before and after campaign"
-    ];
-
     return (
-        <div className="h-full flex flex-col p-6 gap-6 max-w-6xl mx-auto">
-            <header>
+        <div className="h-full flex flex-col p-6 gap-6 max-w-[1600px] mx-auto">
+            <header className="shrink-0">
                 <h1 className="text-3xl font-display font-bold text-text mb-2 flex items-center gap-3">
                     <BarChart3 className="w-8 h-8 text-accent" />
                     Stats Agent
@@ -91,82 +92,67 @@ export default function AnalyticsPanel() {
                     </div>
                 </Card>
             ) : (
-                <div className="flex-1 flex gap-6 overflow-hidden">
-                    {/* Main Chat Area */}
-                    <Card className="flex-1 flex flex-col overflow-hidden shadow-lg p-0">
+                <div className="flex-1 flex gap-6 overflow-hidden min-h-0">
+                    {/* Chat Area - 40% Width */}
+                    <Card className="flex-[0.4] flex flex-col overflow-hidden shadow-lg p-0 min-w-[400px]">
                         {/* Header Context */}
-                        <div className="px-6 py-4 border-b border-border bg-gray-50 flex items-center justify-between">
+                        <div className="px-6 py-4 border-b border-border bg-gray-50 flex items-center justify-between shrink-0">
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-white rounded-lg border border-border shadow-sm">
                                     <FileSpreadsheet className="w-5 h-5 text-accent" />
                                 </div>
-                                <div>
-                                    <p className="text-sm font-bold text-text">{datasetName}</p>
+                                <div className="overflow-hidden">
+                                    <p className="text-sm font-bold text-text truncate max-w-[200px]">{datasetName}</p>
                                     <p className="text-xs text-muted flex items-center gap-1">
                                         <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                                        Active Context
+                                        Active
                                     </p>
                                 </div>
                             </div>
                             <Button variant="ghost" size="sm" onClick={() => { setDatasetUrl(null); setChatHistory([]); }}>
-                                Change Dataset
+                                Change
                             </Button>
                         </div>
 
                         {/* Messages */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white custom-scrollbar">
                             {chatHistory.length === 0 && (
-                                <div className="h-full flex flex-col items-center justify-center opacity-40">
-                                    <ListFilter className="w-16 h-16 text-gray-300 mb-4" />
-                                    <p className="text-lg font-medium text-gray-400">Ready to analyze</p>
+                                <div className="h-full flex flex-col items-center justify-center opacity-40 text-center px-4">
+                                    <ListFilter className="w-12 h-12 text-gray-300 mb-3" />
+                                    <p className="text-md font-medium text-gray-400">Ready to analyze</p>
+                                    <p className="text-xs text-gray-300 mt-2">Try: "Is there a correlation between A and B?"</p>
                                 </div>
                             )}
 
                             {chatHistory.map((msg, i) => (
-                                <div key={i} className={`flex gap-4 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${msg.role === "user" ? "bg-gray-100" : "bg-accent/10"}`}>
-                                        {msg.role === "user" ? <span className="text-xs font-bold text-gray-500">You</span> : <BarChart3 className="w-5 h-5 text-accent" />}
+                                <div key={i} className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${msg.role === "user" ? "bg-gray-100" : "bg-accent/10"}`}>
+                                        {msg.role === "user" ? <span className="text-xs font-bold text-gray-500">You</span> : <BarChart3 className="w-4 h-4 text-accent" />}
                                     </div>
-                                    <div className={`p-4 rounded-2xl max-w-[80%] text-sm shadow-sm ${msg.role === "user" ? "bg-text text-white rounded-tr-sm" : "bg-gray-50 border border-border text-text rounded-tl-sm"}`}>
+                                    <div className={`p-3 rounded-xl max-w-[90%] text-sm shadow-sm ${msg.role === "user" ? "bg-text text-white rounded-tr-sm" : "bg-gray-50 border border-border text-text rounded-tl-sm"}`}>
                                         <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
                                     </div>
                                 </div>
                             ))}
 
                             {loading && (
-                                <div className="flex items-center gap-3 p-4 max-w-[80%] bg-gray-50 rounded-2xl border border-border">
-                                    <Loader2 className="w-5 h-5 text-accent animate-spin" />
-                                    <span className="text-sm text-muted">Running statistical tests...</span>
+                                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-border">
+                                    <Loader2 className="w-4 h-4 text-accent animate-spin" />
+                                    <span className="text-xs text-muted">Running statistical tests...</span>
                                 </div>
                             )}
                         </div>
 
                         {/* Input */}
-                        <div className="p-4 border-t border-border bg-gray-50">
-                            {/* Suggestions */}
-                            {chatHistory.length === 0 && (
-                                <div className="mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                                    {suggestions.map((s, i) => (
-                                        <button
-                                            key={i}
-                                            onClick={() => handleSendMessage(s)}
-                                            className="whitespace-nowrap px-3 py-1.5 bg-white border border-border rounded-full text-xs text-muted hover:text-accent hover:border-accent transition-colors flex items-center gap-2 shadow-sm"
-                                        >
-                                            <Lightbulb className="w-3 h-3" />
-                                            {s}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-
+                        <div className="p-4 border-t border-border bg-gray-50 shrink-0">
                             <div className="relative flex items-center gap-2">
                                 <input
                                     type="text"
                                     value={prompt}
                                     onChange={e => setPrompt(e.target.value)}
                                     onKeyDown={e => e.key === "Enter" && handleSendMessage()}
-                                    placeholder="Describe your hypothesis (e.g. 'Is there a significant difference in...')"
-                                    className="flex-1 pl-4 pr-12 py-3 bg-white border border-border rounded-xl focus:ring-2 focus:ring-accent/20 outline-none text-text placeholder:text-muted/70 shadow-sm"
+                                    placeholder="Ask your stats question..."
+                                    className="flex-1 pl-4 pr-12 py-3 bg-white border border-border rounded-xl focus:ring-2 focus:ring-accent/20 outline-none text-text placeholder:text-muted/70 shadow-sm text-sm"
                                     disabled={loading}
                                 />
                                 <Button
@@ -179,6 +165,15 @@ export default function AnalyticsPanel() {
                             </div>
                         </div>
                     </Card>
+
+                    {/* Grid Area - 60% Width */}
+                    <div className="flex-[0.6] border border-border rounded-xl overflow-hidden shadow-sm bg-white min-w-[500px]">
+                        {/* We reuse the SpreadsheetEditor here for viewing/editing */}
+                        <SpreadsheetEditor
+                            onFileLoaded={handleFileUploaded}
+                        // If we want to support external refresh from stats agent later, we can pass a trigger
+                        />
+                    </div>
                 </div>
             )}
         </div>

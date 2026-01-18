@@ -132,3 +132,130 @@ Result: {json.dumps(result_json)}"""
                 pass
         
         return self.parse_stat_command(command, columns, context)
+
+    # --- Two-Engine Router Framework ---
+    
+    def agent_router(self, user_instruction: str, df_context: dict) -> dict:
+        """
+        The 'Brain': Classifies intent and routes to correct Engine.
+        Engine 1: MANIPULATION (Pandas)
+        Engine 2: PREDICTION (AutoGluon)
+        """
+        if not self.client:
+            return {"error": "Groq client not available"}
+
+        # Step 1: CLASSIFY Intent
+        system_prompt = """
+        You are a Data Assistant. Classify the user's intent into one of two categories:
+        1. 'MANIPULATION': If they want to edit, clean, delete, filter, or transform data.
+        2. 'PREDICTION': If they want to predict, train, forecast, or build a model.
+        
+        Return ONLY the word 'MANIPULATION' or 'PREDICTION'.
+        """
+        
+        try:
+            response = self.client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_instruction}
+                ],
+                temperature=0,
+                max_tokens=10
+            )
+            intent = response.choices[0].message.content.strip().upper()
+        except Exception as e:
+            return {"error": f"Router failed: {str(e)}"}
+            
+        print(f"Router Intent: {intent}")
+        
+        # Step 2: Route
+        if "MANIPULATION" in intent:
+            # We don't execute here because we need the full DF loaded in the router endpoint
+            # We return the action and the generated code
+            cols = df_context.get("columns", [])
+            sample = df_context.get("sample", "")
+            code = self.manipulate_data(user_instruction, cols, sample)
+            return {
+                "action": "MANIPULATION",
+                "code": code,
+                "message": "Generated Pandas code for manipulation."
+            }
+            
+        elif "PREDICTION" in intent:
+            # Extract Target
+            extract_prompt = f"User said: '{user_instruction}'. What is the target column name? Return ONLY the name."
+            try:
+                ex_res = self.client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": extract_prompt}],
+                    temperature=0,
+                    max_tokens=50
+                )
+                target_col = ex_res.choices[0].message.content.strip()
+                # Remove quotes if present
+                target_col = target_col.replace("'", "").replace('"', "")
+                
+                return {
+                    "action": "PREDICTION",
+                    "target": target_col,
+                    "message": f"Identified training target: {target_col}"
+                }
+            except Exception as e:
+                return {"error": f"Failed to extract target: {e}"}
+        
+        else:
+             # Fallback or unrelated
+             return {"action": "UNKNOWN", "message": "Could not classify intent."}
+
+    def manipulate_data(self, command: str, columns: list, sample_data: str) -> str:
+        """
+        Generate Pandas code to manipulate the dataframe based on natural language command.
+        Returns the Python code string.
+        """
+        if not self.client:
+            return ""
+
+        prompt = f"""You are a Pandas Data Manipulation Expert. 
+Given a DataFrame `df` with columns: {json.dumps(columns)}
+Sample data: {sample_data[:500]}
+
+User Command: "{command}"
+
+Generate Python pandas code to apply this command to `df`. 
+rules:
+1. The code must be valid Python.
+2. Assume `df` is already loaded.
+3. You MUST modify `df` in place or assign the result back to `df`.
+4. Return ONLY the code, no markdown, no explanations.
+5. If the command implies deleting rows, use `df.drop(...)` or filtering.
+6. If the command implies creating columns, assign them.
+
+Example match:
+Command: "Delete the first 2 rows"
+Code: df = df.iloc[2:]
+
+Command: "Drop rows where Age is null"
+Code: df = df.dropna(subset=['Age'])
+
+Result Code:"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                max_tokens=200
+            )
+            content = response.choices[0].message.content.strip()
+            
+            # Cleanup markdown
+            if "```python" in content:
+                content = content.split("```python")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+                
+            return content
+        except Exception as e:
+            print(f"Error generating manipulation code: {e}")
+            return ""

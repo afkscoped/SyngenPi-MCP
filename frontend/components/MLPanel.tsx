@@ -13,6 +13,7 @@ export default function MLPanel() {
     const [chatHistory, setChatHistory] = useState<Array<{ role: string, content: string }>>([]);
     const [jobStatus, setJobStatus] = useState<"idle" | "running" | "completed" | "failed">("idle");
     const [currentDataset, setCurrentDataset] = useState<{ name: string, url: string } | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     const handleSendMessage = async () => {
         if (!prompt.trim()) return;
@@ -23,66 +24,63 @@ export default function MLPanel() {
         setChatLoading(true);
 
         try {
-            // Check for Training Command regex
-            // Pattern: train [model] [on] target_col
-            const trainMatch = userMessage.match(/train(?:ing)?\s+(?:model\s+)?(?:on\s+)?['"]?(\w+)['"]?/i);
-
-            if (trainMatch) {
-                if (!currentDataset) {
+            if (!currentDataset) {
+                if (userMessage.length > 3) {
                     throw new Error("Please upload or load a dataset below first.");
                 }
+            }
 
-                const targetCol = trainMatch[1];
+            // Call the Unified Two-Engine Router
+            const res = await fetch(`${API_BASE}/ml/agent_interact`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ dataset_id: currentDataset?.name || "", command: userMessage })
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Error: ${data.error}` }]);
+            } else if (data.action === "MANIPULATION") {
+                // Success - Data Edited
+                const codeSnippet = data.code ? `\n\`\`\`python\n${data.code}\n\`\`\`` : "";
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `✅ Data Updated.\n${codeSnippet}` }]);
+                setRefreshTrigger(prev => prev + 1);
+
+            } else if (data.action === "PREDICTION") {
+                // Success - Intent identified, start training
+                const targetCol = data.target;
                 setJobStatus("running");
                 setChatHistory(prev => [...prev, { role: 'assistant', content: `Starting AutoGluon training on target: **${targetCol}**... this may take a minute.` }]);
 
                 try {
-                    const res = await fetch(`${API_BASE}/ml/train`, {
+                    // Call Train Endpoint
+                    const trainRes = await fetch(`${API_BASE}/ml/train`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            dataset_id: currentDataset.name,
+                            dataset_id: currentDataset!.name,
                             target: targetCol,
                             time_limit: 30
                         })
                     });
+                    const trainData = await trainRes.json();
 
-                    const data = await res.json();
-
-                    if (data.error) {
+                    if (trainData.error) {
                         setJobStatus("failed");
-                        setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Training Failed: ${data.error}` }]);
+                        setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Training Failed: ${trainData.error}` }]);
                     } else {
                         setJobStatus("completed");
-                        const metrics = JSON.stringify(data.metrics, null, 2);
-                        setChatHistory(prev => [...prev, { role: 'assistant', content: `✅ Training Complete!\nModel ID: ${data.model_id}\n\nPerformance:\n${metrics}` }]);
+                        const metrics = JSON.stringify(trainData.metrics, null, 2);
+                        setChatHistory(prev => [...prev, { role: 'assistant', content: `✅ Training Complete!\nModel ID: ${trainData.model_id}\n\nPerformance:\n${metrics}` }]);
                     }
-                } catch (netErr: any) {
+                } catch (e: any) {
                     setJobStatus("failed");
-                    throw new Error(`Network Error: ${netErr.message}`);
+                    setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Training Network Error: ${e.message}` }]);
                 }
 
             } else {
-                // Default: Analytics/General Agent
-                const res = await fetch(`${API_BASE}/analytics/agent`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        command: userMessage,
-                        dataset_id: currentDataset?.url || "", // Pass URL if available
-                        sheet: 'data'
-                    })
-                });
-                const data = await res.json();
-
-                let response = "";
-                if (data.error) {
-                    response = `Error: ${data.error}`;
-                } else {
-                    response = data.message || JSON.stringify(data.results || data, null, 2);
-                }
-
-                setChatHistory(prev => [...prev, { role: 'assistant', content: response }]);
+                // Unknown or other message
+                setChatHistory(prev => [...prev, { role: 'assistant', content: data.message || JSON.stringify(data) }]);
             }
         } catch (e: any) {
             setJobStatus("failed");
@@ -145,7 +143,7 @@ export default function MLPanel() {
                         value={prompt}
                         onChange={e => setPrompt(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
-                        placeholder={currentDataset ? "Type 'Train on target'..." : "Please load a dataset first..."}
+                        placeholder={currentDataset ? "Type 'Train on target' or 'Delete row...'..." : "Please load a dataset first..."}
                         className="w-full pl-4 pr-12 py-3 bg-gray-50 border border-border rounded-xl focus:ring-2 focus:ring-accent/20 outline-none text-text placeholder:text-muted"
                         disabled={chatLoading}
                     />
@@ -161,7 +159,7 @@ export default function MLPanel() {
 
             {/* Embedded Spreadsheet */}
             <div className="flex-1 min-h-[400px] border border-border rounded-xl overflow-hidden shadow-sm">
-                <SpreadsheetEditor onFileLoaded={setCurrentDataset} />
+                <SpreadsheetEditor onFileLoaded={setCurrentDataset} externalRefresh={refreshTrigger} />
             </div>
         </div>
     );

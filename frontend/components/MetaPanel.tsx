@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Beaker, Upload, Database, Repeat, Play, Loader2, AlertCircle, BarChart3, ArrowRight, Table } from "lucide-react";
 import { Button, Card, Input } from "./ui/ThemeComponents";
 import FileDropZone from "./FileDropZone";
+import FilePicker from "./FilePicker";
 
 const API_BASE = "/api/backend";
 
@@ -12,6 +13,7 @@ type Mode = "syngen" | "kaggle" | "upload";
 export default function MetaPanel() {
     const [mode, setMode] = useState<Mode>("syngen");
     const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string, url: string }>>([]);
+    const [showFilePicker, setShowFilePicker] = useState(false);
 
     const [synDomain, setSynDomain] = useState("saas");
     const [synN, setSynN] = useState(20);
@@ -21,6 +23,30 @@ export default function MetaPanel() {
     const [summaries, setSummaries] = useState<any[]>([]);
     const [metaResult, setMetaResult] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
+    const [loadingKaggle, setLoadingKaggle] = useState<string | null>(null);
+
+    const handleRunKaggle = async (dataset: string) => {
+        setLoadingKaggle(dataset);
+        setStatus("running");
+        setError(null);
+        try {
+            const res = await fetch(`${API_BASE}/meta/kaggle`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ dataset })
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            setSummaries(data.summaries || []);
+            setMetaResult(data);
+            setStatus("done");
+        } catch (e: any) {
+            setError(e.message);
+            setStatus("error");
+        } finally {
+            setLoadingKaggle(null);
+        }
+    };
 
     const handleFileAdded = (file: { name: string, url: string }) => {
         setUploadedFiles(prev => [...prev, file]);
@@ -182,24 +208,63 @@ export default function MetaPanel() {
                                         ))}
                                     </div>
                                 )}
-                                <Button
-                                    onClick={handleRunUpload}
-                                    disabled={status === "running" || uploadedFiles.length === 0}
-                                    className="w-full h-12 text-lg"
-                                >
-                                    {status === "running" ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
-                                    Meta-Analyze Files
-                                </Button>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <Button
+                                        onClick={() => setShowFilePicker(true)}
+                                        variant="outline"
+                                        className="w-full"
+                                    >
+                                        <Database className="w-4 h-4 mr-2" />
+                                        Add from Server
+                                    </Button>
+                                    <Button
+                                        onClick={handleRunUpload}
+                                        disabled={status === "running" || uploadedFiles.length === 0}
+                                        className="w-full"
+                                    >
+                                        {status === "running" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
+                                        Analyze Files
+                                    </Button>
+                                </div>
                             </div>
                         )}
 
                         {mode === "kaggle" && (
-                            <div className="text-center py-12 flex flex-col items-center opacity-60">
-                                <Database className="w-16 h-16 text-gray-300 mb-4" />
-                                <h4 className="text-text font-bold mb-1">Kaggle Integration</h4>
-                                <p className="text-sm text-muted max-w-[200px]">
-                                    Requires API key configuration in environment variables.
-                                </p>
+                            <div className="space-y-4">
+                                <h4 className="font-bold text-text mb-2">Select Dataset to Simulate</h4>
+
+                                <div
+                                    className="p-4 border border-border rounded-xl cursor-pointer hover:border-accent hover:shadow-sm transition-all bg-white"
+                                    onClick={() => handleRunKaggle("cookie_cats")}
+                                >
+                                    <h5 className="font-bold text-text flex items-center justify-between">
+                                        Cookie Cats (Mobile Games)
+                                        {loadingKaggle === "cookie_cats" && <Loader2 className="w-4 h-4 animate-spin text-accent" />}
+                                    </h5>
+                                    <p className="text-xs text-muted mt-1">Simulate 10 monthly cohorts grouping by random split (Gate 30 vs 40).</p>
+                                </div>
+
+                                <div
+                                    className="p-4 border border-border rounded-xl cursor-pointer hover:border-accent hover:shadow-sm transition-all bg-white"
+                                    onClick={() => handleRunKaggle("marketing")}
+                                >
+                                    <h5 className="font-bold text-text flex items-center justify-between">
+                                        Marketing Campaigns
+                                        {loadingKaggle === "marketing" && <Loader2 className="w-4 h-4 animate-spin text-accent" />}
+                                    </h5>
+                                    <p className="text-xs text-muted mt-1">Group by Campaign/Day to treat each segment as a separate study.</p>
+                                </div>
+
+                                <div
+                                    className="p-4 border border-border rounded-xl cursor-pointer hover:border-accent hover:shadow-sm transition-all bg-white"
+                                    onClick={() => handleRunKaggle("generic")}
+                                >
+                                    <h5 className="font-bold text-text flex items-center justify-between">
+                                        E-commerce / Web Traffic
+                                        {loadingKaggle === "generic" && <Loader2 className="w-4 h-4 animate-spin text-accent" />}
+                                    </h5>
+                                    <p className="text-xs text-muted mt-1">Simulate studies based on Traffic Source or Random Split.</p>
+                                </div>
                             </div>
                         )}
 
@@ -274,6 +339,16 @@ export default function MetaPanel() {
                     )}
                 </div>
             </div>
+
+            {showFilePicker && (
+                <FilePicker
+                    onSelect={(f) => {
+                        handleFileAdded(f);
+                        setShowFilePicker(false);
+                    }}
+                    onCancel={() => setShowFilePicker(false)}
+                />
+            )}
         </div>
     );
 }

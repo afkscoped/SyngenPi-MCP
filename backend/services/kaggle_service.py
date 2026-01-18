@@ -22,6 +22,11 @@ DATASETS = {
         "slug": "zhangluyuan/ab-testing",
         "file": "ab_data.csv",
         "description": "Generic Web A/B Test"
+    },
+    "ecommerce": {
+        "slug": "zhangluyuan/ab-testing", # Reuse generic for demo, or a specific one if known
+        "file": "ab_data.csv",
+        "description": "E-commerce Traffic Analysis"
     }
 }
 
@@ -76,6 +81,8 @@ class KaggleService:
             return self._process_marketing(df) # Natural split by campaign/date, n_studies ignored or used for filtering
         elif dataset_key == "generic":
             return self._process_generic(df, n_studies, seed)
+        elif dataset_key == "ecommerce":
+            return self._process_ecommerce(df, seed)
         else:
             return []
 
@@ -163,7 +170,7 @@ class KaggleService:
         Generic:
         group (control/treatment), landing_page, converted (0/1)
         Split: Random or by 'landing_page' if multiple? 
-        Usually ab_data.csv has just 'new_page' vs 'old_page'.
+        usually ab_data.csv has just 'new_page' vs 'old_page'.
         We will use Random User Split.
         """
         np.random.seed(seed)
@@ -183,4 +190,43 @@ class KaggleService:
              if "error" not in summary:
                  summary["study_id"] = f"generic_cohort_{i+1}"
                  summaries.append(summary)
+        return summaries
+
+    def _process_ecommerce(self, df: pd.DataFrame, seed: int):
+        """
+        E-commerce:
+        Split by 'Traffic Source' (Direct vs Ads).
+        If column missing, simulate it.
+        """
+        np.random.seed(seed)
+        
+        # Simulate Traffic Source if missing
+        if "traffic_source" not in df.columns:
+            sources = ["Direct", "Ads", "Social", "Email", "Referral"]
+            df["traffic_source"] = np.random.choice(sources, size=len(df), p=[0.3, 0.4, 0.15, 0.1, 0.05])
+            
+        summaries = []
+        sources = df["traffic_source"].unique()
+        
+        for source in sources:
+            sub = df[df["traffic_source"] == source]
+            if len(sub) < 50: continue # Skip small segments
+            
+            # Treat: treatment/new_page
+            # Check cols
+            treat_col = "group" if "group" in df.columns else "treatment"
+            outcome_col = "converted"
+            
+            summary = compute_summary_from_df(
+                 sub,
+                 treat_col=treat_col,
+                 outcome_col=outcome_col,
+                 treat_val="treatment", # Assume standard ab_data val
+                 outcome_type="binary"
+            )
+            
+            if "error" not in summary:
+                summary["study_id"] = f"ecom_{source}"
+                summaries.append(summary)
+                
         return summaries
